@@ -36,6 +36,7 @@ export default {
 					console.log(`[BROWSER] Cache miss - generating screenshot for: ${url}`);
 
 					let browser;
+					let page;
 					try {
 						console.log(`[BROWSER] Launching puppeteer with binding type: ${typeof env.MYBROWSER}`);
 						if (!env.MYBROWSER) {
@@ -43,7 +44,7 @@ export default {
 						}
 						browser = await puppeteer.launch(env.MYBROWSER);
 						console.log(`[BROWSER] Browser launched successfully`);
-						const page = await browser.newPage();
+						page = await browser.newPage();
 						console.log(`[BROWSER] New page created`);
 
 						console.log(`[BROWSER] Setting viewport to 1080x1080`);
@@ -125,10 +126,18 @@ export default {
 						console.error(`[BROWSER] Screenshot error type: ${screenshotError.constructor.name}`);
 						throw screenshotError;
 					} finally {
-						if (page) await page.close().catch(() => {});
-						if (browser) {
-							console.log('[BROWSER] Closing browser…');
-							await browser.close().catch((e) => console.error('[BROWSER] Error closing browser:', e));
+						try {
+							if (page) {
+								await page.close();
+								console.log('[BROWSER] Page closed successfully');
+							}
+							if (browser) {
+								console.log('[BROWSER] Closing browser…');
+								await browser.close();
+								console.log('[BROWSER] Browser closed successfully');
+							}
+						} catch (cleanupError) {
+							console.error('[BROWSER] Error during cleanup:', cleanupError);
 						}
 					}
 				} else {
