@@ -61,7 +61,7 @@ export default {
 							console.log(`[BROWSER] Testing URL reachability...`);
 							const testResponse = await fetch(url, { method: 'HEAD' });
 							console.log(`[BROWSER] URL test result: ${testResponse.status} ${testResponse.statusText}`);
-							
+
 							await page.goto(url, {
 								waitUntil: 'networkidle0',
 								timeout: 30000, // 30 seconds
@@ -79,16 +79,16 @@ export default {
 							// Check for SVG element
 							await page.waitForSelector('svg', { timeout: 10000 });
 							console.log(`[BROWSER] SVG element found`);
-							
+
 							// Log page info
 							const pageTitle = await page.title();
-							const svgCount = await page.$$eval('svg', svgs => svgs.length);
+							const svgCount = await page.$$eval('svg', (svgs) => svgs.length);
 							console.log(`[BROWSER] Page title: "${pageTitle}", SVG count: ${svgCount}`);
 						} catch (selectorError) {
 							console.error(`[BROWSER] SVG element not found:`, selectorError);
 							// Get page content for debugging
 							try {
-								const bodyHTML = await page.$eval('body', el => el.innerHTML.substring(0, 500));
+								const bodyHTML = await page.$eval('body', (el) => el.innerHTML.substring(0, 500));
 								console.log(`[BROWSER] Page body (first 500 chars): ${bodyHTML}`);
 							} catch (e) {
 								console.log(`[BROWSER] Could not get page content`);
@@ -96,13 +96,20 @@ export default {
 							// Continue anyway
 						}
 
-						console.log(`[BROWSER] Taking screenshot...`);
-						img = await page.screenshot({
-							quality: 100,
-							type: 'jpeg',
-						});
-						console.log(`[BROWSER] Screenshot taken, size: ${img.length} bytes`);
+						const MAX = 7_900_000; // 8 MB – a bit of head-room
+						console.log('[BROWSER] Screenshot q100 …');
+						img = await page.screenshot({ type: 'jpeg', quality: 100 });
 
+						if (img.byteLength > MAX) {
+							console.log(`[BROWSER] ${(img.byteLength / 1e6).toFixed(2)} MB > 7.9 MB → re-encode q80`);
+							img = await page.screenshot({ type: 'jpeg', quality: 80 });
+						}
+						if (img.byteLength > MAX) {
+							console.log(`[BROWSER] Still big → drop DPR to 1 & q85`);
+							await page.setViewport({ width: 1080, height: 1080, deviceScaleFactor: 1 });
+							img = await page.screenshot({ type: 'jpeg', quality: 85 });
+						}
+						console.log(`[BROWSER] Final JPEG ${(img.byteLength / 1e6).toFixed(2)} MB (${img.length} bytes)`);
 						console.log(`[BROWSER] Caching screenshot...`);
 						try {
 							await env.BROWSER_KV_DEMO.put(url, img, {
@@ -118,14 +125,10 @@ export default {
 						console.error(`[BROWSER] Screenshot error type: ${screenshotError.constructor.name}`);
 						throw screenshotError;
 					} finally {
+						if (page) await page.close().catch(() => {});
 						if (browser) {
-							console.log(`[BROWSER] Closing browser...`);
-							try {
-								await browser.close();
-								console.log(`[BROWSER] Browser closed`);
-							} catch (closeError) {
-								console.error(`[BROWSER] Error closing browser:`, closeError);
-							}
+							console.log('[BROWSER] Closing browser…');
+							await browser.close().catch((e) => console.error('[BROWSER] Error closing browser:', e));
 						}
 					}
 				} else {
