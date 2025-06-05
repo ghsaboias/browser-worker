@@ -8,6 +8,10 @@ kv_namespaces = [
   { binding = "BROWSER_KV_DEMO", id = "85bcee39e9194027a0678f56302e927e", preview_id = "68087b3b716e499fb6ed28cd5b8202b7" }
 ]
 
+services = [
+  { binding = "SVG_WORKER", service = "svg-generator" }
+]
+
 # wrangler.toml (wrangler v3.88.0^)
 [observability.logs]
 enabled = true

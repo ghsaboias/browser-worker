@@ -6,6 +6,8 @@ export default {
 		console.log(`[BROWSER] Request: ${request.method} ${request.url}`);
 		console.log(`[BROWSER] Environment check - MYBROWSER: ${env.MYBROWSER ? 'AVAILABLE' : 'MISSING'}`);
 		console.log(`[BROWSER] Environment check - BROWSER_KV_DEMO: ${env.BROWSER_KV_DEMO ? 'AVAILABLE' : 'MISSING'}`);
+		console.log(`[BROWSER] Environment check - SVG_WORKER: ${env.SVG_WORKER ? 'AVAILABLE' : 'MISSING'}`);
+
 		try {
 			const { searchParams } = new URL(request.url);
 			let url = searchParams.get('url');
@@ -14,13 +16,68 @@ export default {
 
 			if (url) {
 				console.log(`[BROWSER] URL parameter provided: ${url}`);
-				// Add try-catch for URL normalization
-				try {
-					url = new URL(url).toString();
-					console.log(`[BROWSER] Normalized URL: ${url}`);
-				} catch (urlError) {
-					console.error(`[BROWSER] Invalid URL provided: ${url}`, urlError);
-					return new Response(`Invalid URL: ${urlError.message}`, { status: 400 });
+
+				// Handle data URLs
+				if (url.startsWith('data:')) {
+					console.log(`[BROWSER] Data URL detected`);
+					try {
+						// Extract the base64 content
+						const base64Content = url.split(',')[1];
+						if (!base64Content) {
+							throw new Error('Invalid data URL format');
+						}
+
+						// Convert to HTML string
+						const htmlContent = atob(base64Content);
+						console.log(`[BROWSER] Successfully decoded data URL`);
+
+						// Create a temporary URL for the HTML content
+						url = `data:text/html;base64,${btoa(htmlContent)}`;
+					} catch (dataUrlError) {
+						console.error(`[BROWSER] Failed to process data URL:`, dataUrlError);
+						return new Response(`Invalid data URL: ${dataUrlError.message}`, { status: 400 });
+					}
+				} else {
+					// For regular URLs, normalize them
+					try {
+						url = new URL(url).toString();
+						console.log(`[BROWSER] Normalized URL: ${url}`);
+					} catch (urlError) {
+						console.error(`[BROWSER] Invalid URL provided: ${url}`, urlError);
+						return new Response(`Invalid URL: ${urlError.message}`, { status: 400 });
+					}
+				}
+
+				// Check if we need to call SVG worker
+				const headline = searchParams.get('headline');
+				if (headline && env.SVG_WORKER) {
+					console.log(`[BROWSER] Headline provided, calling SVG worker via binding`);
+					try {
+						const svgResponse = await env.SVG_WORKER.fetch('http://svg-worker/', {
+							method: 'POST',
+							headers: {
+								'Content-Type': 'application/json',
+								'x-service-binding': 'true',
+							},
+							body: JSON.stringify({ headline }),
+						});
+
+						if (!svgResponse.ok) {
+							throw new Error(`SVG worker returned ${svgResponse.status}`);
+						}
+
+						const svgHtml = await svgResponse.text();
+						url = `data:text/html;base64,${btoa(svgHtml)}`;
+						console.log(`[BROWSER] Successfully generated SVG via worker binding`);
+					} catch (svgError) {
+						console.error(`[BROWSER] SVG worker call failed:`, svgError);
+						// Fall back to direct URL if provided
+						if (!url.startsWith('data:')) {
+							console.log(`[BROWSER] Falling back to direct URL`);
+						} else {
+							return new Response(`SVG generation failed: ${svgError.message}`, { status: 500 });
+						}
+					}
 				}
 
 				console.log(`[BROWSER] Checking cache for URL...`);
@@ -58,10 +115,12 @@ export default {
 						// Add timeout and better error handling for navigation
 						console.log(`[BROWSER] Navigating to URL: ${url}`);
 						try {
-							// Test URL reachability first
-							console.log(`[BROWSER] Testing URL reachability...`);
-							const testResponse = await fetch(url, { method: 'HEAD' });
-							console.log(`[BROWSER] URL test result: ${testResponse.status} ${testResponse.statusText}`);
+							// Only test reachability for non-data URLs
+							if (!url.startsWith('data:')) {
+								console.log(`[BROWSER] Testing URL reachability...`);
+								const testResponse = await fetch(url, { method: 'HEAD' });
+								console.log(`[BROWSER] URL test result: ${testResponse.status} ${testResponse.statusText}`);
+							}
 
 							await page.goto(url, {
 								waitUntil: 'networkidle0',
@@ -149,6 +208,8 @@ export default {
 					headers: {
 						'content-type': 'image/jpeg',
 						'x-browser-worker': 'success',
+						'Cache-Control': 'public, max-age=86400',
+						'Access-Control-Allow-Origin': '*',
 					},
 				});
 			} else {
